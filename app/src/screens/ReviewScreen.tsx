@@ -8,13 +8,15 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Dimensions,
+  LayoutChangeEvent,
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList, JumpClip, AnalysisResult } from '../types';
-import { getClipUrl, getResults } from '../services/api';
+import { getClipUrl, getResults, getFrameData, FrameDataResponse } from '../services/api';
+import SkeletonOverlay from '../components/SkeletonOverlay';
 
 type ReviewRouteProp = RouteProp<RootStackParamList, 'Review'>;
 type ReviewNavProp = NativeStackNavigationProp<RootStackParamList, 'Review'>;
@@ -33,6 +35,13 @@ export default function ReviewScreen() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  // Frame data for skeleton overlay
+  const [frameData, setFrameData] = useState<FrameDataResponse | null>(null);
+  const [currentFrame, setCurrentFrame] = useState(0);
+  const [showSkeleton, setShowSkeleton] = useState(false);
+  const [videoDimensions, setVideoDimensions] = useState({ width: SCREEN_WIDTH, height: SCREEN_WIDTH * 9 / 16 });
+  const lastPlaybackTime = useRef(0);
+
   // Fetch results on mount
   useEffect(() => {
     (async () => {
@@ -47,6 +56,24 @@ export default function ReviewScreen() {
       }
     })();
   }, [sessionId]);
+
+  // Fetch frame data when current jump changes
+  useEffect(() => {
+    if (!result || result.jumps.length === 0) return;
+    const currentJump = result.jumps[currentIndex];
+    if (!currentJump) return;
+
+    (async () => {
+      try {
+        const data = await getFrameData(sessionId, currentJump.jump_index);
+        setFrameData(data);
+        setCurrentFrame(0);
+      } catch (err: any) {
+        console.error('Failed to load frame data:', err);
+        setFrameData(null);
+      }
+    })();
+  }, [sessionId, currentIndex, result]);
 
   const jumps = result?.jumps ?? [];
   const currentJump = jumps[currentIndex] ?? null;
@@ -63,10 +90,17 @@ export default function ReviewScreen() {
 
   const onPlaybackStatusUpdate = useCallback(
     (status: AVPlaybackStatus) => {
-      if (!status.isLoaded) return;
-      // Auto-advance? We'll keep it manual for now.
+      if (!status.isLoaded || !frameData) return;
+      lastPlaybackTime.current = status.positionMillis / 1000; // seconds
+
+      // Calculate current frame from playback time
+      const frame = Math.floor(lastPlaybackTime.current * frameData.fps);
+      const clampedFrame = Math.min(frame, frameData.total_clip_frames - 1);
+      if (clampedFrame >= 0) {
+        setCurrentFrame(clampedFrame);
+      }
     },
-    []
+    [frameData]
   );
 
   const replay = useCallback(async () => {
@@ -75,6 +109,16 @@ export default function ReviewScreen() {
       await videoRef.current.playAsync();
     }
   }, []);
+
+  const onVideoLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setVideoDimensions({ width, height });
+  }, []);
+
+  // Compute current frame's landmarks for skeleton overlay
+  const currentLandmarks = frameData && currentFrame < frameData.landmarks.length
+    ? frameData.landmarks[currentFrame]
+    : null;
 
   // ── Loading State ──
   if (loading) {
@@ -139,18 +183,27 @@ export default function ReviewScreen() {
         </Text>
       </View>
 
-      {/* Video Player */}
-      <View style={styles.videoContainer}>
+      {/* Video Player with Skeleton Overlay */}
+      <View style={styles.videoContainer} onLayout={onVideoLayout}>
         {clipUrl ? (
-          <Video
-            ref={videoRef}
-            source={{ uri: clipUrl }}
-            style={styles.video}
-            resizeMode={ResizeMode.CONTAIN}
-            useNativeControls
-            shouldPlay
-            onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-          />
+          <View style={styles.videoWrapper}>
+            <Video
+              ref={videoRef}
+              source={{ uri: clipUrl }}
+              style={styles.video}
+              resizeMode={ResizeMode.CONTAIN}
+              useNativeControls
+              shouldPlay
+              onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+            />
+            <SkeletonOverlay
+              landmarks={currentLandmarks}
+              connections={frameData?.connections ?? []}
+              videoWidth={videoDimensions.width}
+              videoHeight={videoDimensions.height}
+              visible={showSkeleton && frameData !== null}
+            />
+          </View>
         ) : (
           <View style={styles.videoPlaceholder}>
             <Ionicons name="videocam-outline" size={48} color="#666688" />
@@ -207,6 +260,29 @@ export default function ReviewScreen() {
         <TouchableOpacity style={styles.replayButton} onPress={replay}>
           <Ionicons name="refresh" size={22} color="#ffffff" />
           <Text style={styles.replayLabel}>Replay</Text>
+        </TouchableOpacity>
+
+        {/* Skeleton Toggle */}
+        <TouchableOpacity
+          style={[
+            styles.skeletonButton,
+            showSkeleton && styles.skeletonButtonActive,
+          ]}
+          onPress={() => setShowSkeleton(!showSkeleton)}
+        >
+          <Ionicons
+            name="body-outline"
+            size={22}
+            color={showSkeleton ? '#ffffff' : '#8888cc'}
+          />
+          <Text
+            style={[
+              styles.skeletonLabel,
+              showSkeleton && styles.skeletonLabelActive,
+            ]}
+          >
+            Skeleton
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -330,6 +406,10 @@ const styles = StyleSheet.create({
     aspectRatio: 16 / 9,
     backgroundColor: '#000000',
   },
+  videoWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
   video: {
     flex: 1,
   },
@@ -369,7 +449,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 20,
+    gap: 12,
     paddingVertical: 12,
   },
   navButton: {
@@ -377,7 +457,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     backgroundColor: '#2d2d5e',
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,
   },
@@ -386,7 +466,7 @@ const styles = StyleSheet.create({
   },
   navButtonLabel: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   navButtonLabelDisabled: {
@@ -397,14 +477,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     backgroundColor: '#4a4aff',
-    paddingHorizontal: 22,
+    paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 10,
   },
   replayLabel: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
+  },
+  skeletonButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#2d2d5e',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#444466',
+  },
+  skeletonButtonActive: {
+    backgroundColor: '#3a3a7e',
+    borderColor: '#4a4aff',
+  },
+  skeletonLabel: {
+    color: '#8888cc',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  skeletonLabelActive: {
+    color: '#ffffff',
   },
   chipListContainer: {
     paddingTop: 8,

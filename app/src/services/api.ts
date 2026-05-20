@@ -2,11 +2,12 @@ import { AnalysisResult } from '../types';
 
 // When running on a local dev machine, use your computer's LAN IP so your iPhone can reach it.
 // For production, replace with your server URL.
-// Replace YOUR_COMPUTER_IP with this server's IP for iPhone testing
-const SERVER_IP = '177.7.47.59';
+// Dev mode: API goes through Expo tunnel (works from iPhone on any network)
+// Production: use localhost or your server URL
+const TUNNEL_HOST = 'hmkdgxs-anonymous-8081.exp.direct';
 const API_BASE = __DEV__
-  ? `http://${SERVER_IP}:8000`
-  : 'http://localhost:8001';
+  ? `http://${TUNNEL_HOST}:80`
+  : 'http://localhost:9099';
 
 /**
  * Upload a video for jump analysis.
@@ -63,6 +64,41 @@ export async function getResults(sessionId: string): Promise<AnalysisResult> {
 
   if (!response.ok) {
     throw new Error(`Failed to fetch results (${response.status})`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Frame data for skeleton overlay.
+ */
+export interface FrameDataResponse {
+  session_id: string;
+  jump_index: number;
+  fps: number;
+  total_clip_frames: number;
+  clip_start_frame: number;
+  clip_end_frame: number;
+  landmarks: FrameLandmarks[];  // Array per frame, each with 33 landmarks
+  connections: number[][];      // Pairs of landmark indices for bones
+}
+
+/** 33 landmarks per frame */
+export type FrameLandmarks = Array<{ x: number; y: number; visibility: number }>;
+
+/**
+ * Fetch per-frame landmark data for skeleton overlay rendering.
+ */
+export async function getFrameData(
+  sessionId: string,
+  jumpIndex: number
+): Promise<FrameDataResponse> {
+  const response = await fetch(
+    `${API_BASE}/frame-data/${sessionId}/${jumpIndex}`
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch frame data (${response.status})`);
   }
 
   return response.json();

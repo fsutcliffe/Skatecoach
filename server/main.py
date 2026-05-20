@@ -8,7 +8,7 @@ trims clips around each detected jump, and serves results.
 import logging
 import os
 import uuid
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 
 from fastapi.staticfiles import StaticFiles
 
@@ -50,6 +50,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ── MediaPipe Skeleton Connections ──
+# Defines which landmarks connect to form bones
+SKELETON_CONNECTIONS = [
+    [0, 1], [0, 2], [1, 3], [2, 4], [0, 5], [0, 6],
+    [5, 7], [7, 9], [6, 8], [8, 10],
+    [5, 11], [6, 12], [11, 12], [11, 13], [13, 15],
+    [12, 14], [14, 16],
+    [11, 23], [12, 24], [23, 24], [23, 25], [25, 27],
+    [27, 29], [27, 31], [24, 26], [26, 28], [28, 30],
+    [28, 32],
+    [15, 17], [15, 19], [15, 21], [16, 18], [16, 20], [16, 22],
+]
 
 # ── Helper Functions ──
 
@@ -237,6 +250,55 @@ async def get_results(session_id: str):
         "total_jumps": len(jumps_data),
         "jumps": jumps_data,
         "original_video": result.filename,
+        "rotation_angle": result.rotation_angle,
+    }
+
+
+@app.get("/frame-data/{session_id}/{jump_index}")
+async def get_frame_data(session_id: str, jump_index: int):
+    """
+    Return per-frame landmark data for a specific jump clip.
+    Used by the frontend to render the skeleton overlay.
+    """
+    result = sessions.get(session_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Find the matching jump
+    jump = None
+    for j in result.jumps:
+        if j.index == jump_index:
+            jump = j
+            break
+
+    if not jump:
+        raise HTTPException(status_code=404, detail=f"Jump #{jump_index} not found")
+
+    # Determine clip frame range (using same logic as clip trimming)
+    pre_frames = int(3.0 * result.fps)  # default pre_trim=3.0
+    post_frames = int(3.0 * result.fps)  # default post_trim=3.0
+    start_frame = max(0, jump.takeoff_frame - pre_frames)
+    end_frame = min(result.total_frames, jump.landing_frame + post_frames)
+
+    # Extract landmarks for just the clip region
+    clip_landmarks: List[Any] = []
+    for f in range(start_frame, end_frame):
+        if f in result.landmarks:
+            clip_landmarks.append(result.landmarks[f])
+        else:
+            # Frame had no person detected - pad with zeros
+            empty_frame = [{"x": 0.0, "y": 0.0, "visibility": 0.0} for _ in range(33)]
+            clip_landmarks.append(empty_frame)
+
+    return {
+        "session_id": session_id,
+        "jump_index": jump_index,
+        "fps": result.fps,
+        "total_clip_frames": len(clip_landmarks),
+        "clip_start_frame": start_frame,
+        "clip_end_frame": end_frame,
+        "landmarks": clip_landmarks,
+        "connections": SKELETON_CONNECTIONS,
     }
 
 
@@ -261,7 +323,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8001,
+        port=9099,
         reload=True,
         log_level="info",
     )

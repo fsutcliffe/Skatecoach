@@ -8,7 +8,8 @@ then trims clips around each detected jump.
 import dataclasses
 import logging
 import os
-from typing import Any, List, Optional, Tuple
+import subprocess
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import mediapipe as mp
@@ -49,6 +50,14 @@ class JumpAnalysisResult:
     total_frames: int
     total_jumps: int
     jumps: List[JumpEvent]
+    landmarks: Dict[int, List[Dict[str, float]]] = dataclasses.field(default_factory=dict)
+    """
+    Per-frame landmark data keyed by absolute frame number.
+    Each value is a list of 33 dicts: {"x": ..., "y": ..., "visibility": ...}
+    Only frames that were successfully processed have entries.
+    """
+    rotation_angle: int = 0
+    """Detected rotation angle (0, 90, 180, 270) for iPhone orientation fix."""
 
 
 class JumpAnalyzer:
@@ -98,14 +107,18 @@ class JumpAnalyzer:
             fps = actual_fps
 
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        # ── Detect video rotation (iPhone portrait fix) ──
+        rotation_angle = get_video_rotation(video_path)
         logger.info(
-            f"Video: {total_frames} frames, {fps:.2f} fps, {frame_height}px height"
+            f"Video: {total_frames} frames, {fps:.2f} fps, {frame_height}px height, rotation={rotation_angle}°"
         )
 
         # ── Extract hip y-signal over all frames ──
         hip_y_signal: List[float] = []
         visibilities: List[float] = []
         last_known_y: Optional[float] = None
+        all_landmarks: Dict[int, List[Dict[str, float]]] = {}
 
         frame_idx = 0
         while True:
@@ -113,10 +126,17 @@ class JumpAnalyzer:
             if not ret:
                 break
 
+            # Rotate frame if needed (iPhone portrait fix)
+            if rotation_angle != 0:
+                frame = rotate_frame(frame, rotation_angle)
+
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = self.pose.process(frame_rgb)
 
             if results.pose_landmarks:
+                # Store all 33 landmarks for skeleton overlay
+                all_landmarks[frame_idx] = extract_landmarks(results.pose_landmarks)
+
                 y_pixel, vis = self._extract_hip_y(results.pose_landmarks, frame_height)
                 if vis >= MIN_VISIBILITY:
                     hip_y_signal.append(y_pixel)
@@ -143,7 +163,7 @@ class JumpAnalyzer:
                 logger.debug(f"Processed {frame_idx}/{total_frames} frames")
 
         cap.release()
-        logger.info(f"Extracted hip signal: {len(hip_y_signal)} samples")
+        logger.info(f"Extracted hip signal: {len(hip_y_signal)} samples, landmarks saved for {len(all_landmarks)} frames")
 
         if len(hip_y_signal) < fps:
             logger.warning("Video too short for analysis")
@@ -279,6 +299,8 @@ class JumpAnalyzer:
             total_frames=total_frames,
             total_jumps=len(jumps),
             jumps=jumps,
+            landmarks=all_landmarks,
+            rotation_angle=rotation_angle,
         )
 
         return result
@@ -293,6 +315,7 @@ class JumpAnalyzer:
     ) -> bool:
         """
         Extract a segment from the video using OpenCV VideoWriter.
+        Applies rotation correction so portrait clips are upright.
         """
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
@@ -304,25 +327,151 @@ class JumpAnalyzer:
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
+        # Detect rotation and swap dimensions if needed
+        rotation_angle = get_video_rotation(video_path)
+        if rotation_angle in (90, 270):
+            out_width, out_height = height, width
+        else:
+            out_width, out_height = width, height
+
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        out = cv2.VideoWriter(output_path, fourcc, fps, (out_width, out_height))
 
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-        for frame_num in range(start_frame, min(end_frame, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))):
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        for frame_num in range(start_frame, min(end_frame, total)):
             ret, frame = cap.read()
             if not ret:
                 break
+            # Rotate frame if needed
+            if rotation_angle != 0:
+                frame = rotate_frame(frame, rotation_angle)
             out.write(frame)
 
         cap.release()
         out.release()
 
         if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            logger.info(f"Trimmed clip saved: {output_path} ({end_frame - start_frame} frames)")
+            logger.info(f"Trimmed clip saved: {output_path} ({end_frame - start_frame} frames, {out_width}x{out_height})")
             return True
         else:
             logger.error(f"Failed to create clip: {output_path}")
             return False
+
+
+# ── Rotation Detection ──
+
+
+def get_video_rotation(video_path: str) -> int:
+    """
+    Detect the rotation angle of a video file.
+    iPhone portrait .mov files store rotation metadata (typically 90°).
+    Returns 0, 90, 180, or 270.
+    """
+    # Method 1: Try OpenCV orientation property
+    cap = cv2.VideoCapture(video_path)
+    orient_prop = getattr(cv2, 'CAP_PROP_ORIENTATION_META', None)
+    if orient_prop is not None:
+        orientation = cap.get(orient_prop)
+        if orientation and int(orientation) != 1:
+            mapping = {1: 0, 2: 0, 3: 180, 4: 180, 5: 90, 6: 90, 7: 270, 8: 270}
+            result = mapping.get(int(orientation), 0)
+            cap.release()
+            if result != 0:
+                logger.info(f"Detected rotation via OpenCV: {result}°")
+                return result
+    cap.release()
+
+    # Method 2: Use ffprobe to read rotate tag from video stream
+    try:
+        cmd = [
+            'ffprobe', '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream_tags=rotate',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            video_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        stdout = result.stdout.strip()
+        if stdout and stdout.isdigit():
+            angle = int(stdout) % 360
+            logger.info(f"Detected rotation via ffprobe: {angle}°")
+            return angle
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        logger.debug(f"ffprobe not available or failed: {e}")
+
+    # Method 3: Try ffprobe display matrix side data (used by some MOV files)
+    try:
+        cmd = [
+            'ffprobe', '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream_side_data=rotation',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            video_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        stdout = result.stdout.strip()
+        if stdout:
+            # Parse the rotation value
+            parts = stdout.split('=')
+            if len(parts) >= 2:
+                val = parts[-1].strip()
+                try:
+                    angle = int(float(val)) % 360
+                    logger.info(f"Detected rotation via ffprobe side_data: {angle}°")
+                    return angle
+                except ValueError:
+                    pass
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    # Method 4: Try to read orientation from raw bytes (iPhone MOV hack)
+    try:
+        with open(video_path, 'rb') as f:
+            header = f.read(65536)
+            # Look for "rotate" metadata in the moov atom
+            idx = header.find(b'rotate')
+            if idx >= 0:
+                # Try to find the angle value near "rotate"
+                chunk = header[idx:idx + 50]
+                import re
+                match = re.search(rb'\D(\d+)\D', chunk)
+                if match:
+                    val = int(match.group(1))
+                    if val in (90, 180, 270):
+                        logger.info(f"Detected rotation via binary scan: {val}°")
+                        return val
+    except Exception:
+        pass
+
+    logger.info("No rotation detected (0°)")
+    return 0  # Default: no rotation
+
+
+def rotate_frame(frame: np.ndarray, angle: int) -> np.ndarray:
+    """Rotate a frame by the given angle (90, 180, 270)."""
+    if angle == 90:
+        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    elif angle == 270:
+        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    elif angle == 180:
+        return cv2.rotate(frame, cv2.ROTATE_180)
+    return frame
+
+
+def extract_landmarks(pose_landmarks: Any) -> List[Dict[str, float]]:
+    """
+    Extract all 33 MediaPipe landmarks as a list of {x, y, visibility} dicts.
+    Coordinates are normalized 0.0-1.0.
+    """
+    landmarks = []
+    for lm in pose_landmarks.landmark:
+        landmarks.append({
+            "x": round(lm.x, 6),
+            "y": round(lm.y, 6),
+            "visibility": round(lm.visibility, 6),
+        })
+    return landmarks
 
 
 # ── Convenience Functions ──
