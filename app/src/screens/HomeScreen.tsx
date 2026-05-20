@@ -50,7 +50,7 @@ export default function HomeScreen() {
       });
 
       if (!result.canceled && result.assets.length > 0) {
-        navigation.navigate('Processing', {
+        navigation.navigate('SelectPerson', {
           videoUri: result.assets[0].uri,
         });
       }
@@ -70,7 +70,7 @@ export default function HomeScreen() {
       setIsRecording(false);
       setShowCamera(false);
       if (video?.uri) {
-        navigation.navigate('Processing', { videoUri: video.uri });
+        navigation.navigate('SelectPerson', { videoUri: video.uri });
       }
     } catch (err: any) {
       setIsRecording(false);

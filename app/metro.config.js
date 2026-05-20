@@ -20,6 +20,7 @@ config.server.enhanceMiddleware = (metroMiddleware) => {
       parsed.pathname.startsWith('/clips/') ||
       parsed.pathname.startsWith('/uploads/') ||
       parsed.pathname.startsWith('/qr') ||
+      parsed.pathname.startsWith('/frame-data/') ||
       parsed.pathname === '/health'
     )) {
       // Forward to Python API server

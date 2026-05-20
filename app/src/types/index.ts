@@ -19,8 +19,32 @@ export interface AnalysisResult {
   original_video: string;
 }
 
+// ── Person Detection Types ──
+
+export interface PersonDetection {
+  person_index: number;
+  bbox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  confidence: number;
+  landmarks: Array<{ x: number; y: number; visibility: number }>;
+}
+
+export interface DetectPeopleResponse {
+  session_id: string;
+  filename: string;
+  frame: string;  // base64 JPEG data URL
+  frame_width: number;
+  frame_height: number;
+  detections: PersonDetection[];
+}
+
 export type RootStackParamList = {
   Home: undefined;
-  Processing: { videoUri: string };
+  SelectPerson: { videoUri: string };
+  Processing: { videoUri: string; personIndex?: number };
   Review: { sessionId: string };
 };

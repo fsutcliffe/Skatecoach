@@ -4,6 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import HomeScreen from './src/screens/HomeScreen';
+import SelectPersonScreen from './src/screens/SelectPersonScreen';
 import ProcessingScreen from './src/screens/ProcessingScreen';
 import ReviewScreen from './src/screens/ReviewScreen';
 import { RootStackParamList } from './src/types';
@@ -27,6 +28,14 @@ export default function App() {
           name="Home"
           component={HomeScreen}
           options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="SelectPerson"
+          component={SelectPersonScreen}
+          options={{
+            title: 'Select Person',
+            headerBackTitle: 'Back',
+          }}
         />
         <Stack.Screen
           name="Processing"

@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.responses import FileResponse, JSONResponse
 
-from analyzer import JumpAnalysisResult, JumpEvent, detect_jumps, trim_clip
+from analyzer import JumpAnalysisResult, JumpEvent, detect_jumps, detect_jumps_with_person, trim_clip, extract_middle_frame_and_encode
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -103,15 +103,64 @@ async def serve_qr_page():
 
 # ── API Endpoints ──
 
+@app.post("/detect-people")
+async def detect_people(
+    video: UploadFile = File(...),
+):
+    """
+    Detect all people in the video's middle frame.
+    Returns normalized bounding boxes, confidence scores, and skeleton landmarks.
+    """
+    if not validate_video_file(video.filename or "video.mp4"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+        )
+
+    session_id = str(uuid.uuid4())
+    ext = os.path.splitext(video.filename or "video.mp4")[1]
+    saved_filename = f"{session_id}{ext}"
+    video_path = os.path.join(UPLOAD_DIR, saved_filename)
+
+    with open(video_path, "wb") as f:
+        content = await video.read()
+        f.write(content)
+
+    logger.info(f"Saved video for person detection: {video_path} ({len(content)} bytes)")
+
+    try:
+        frame_data_url, detections, frame_width, frame_height = extract_middle_frame_and_encode(video_path)
+    except Exception as e:
+        logger.error(f"Person detection error: {e}", exc_info=True)
+        # Clean up
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        raise HTTPException(status_code=500, detail=f"Detection failed: {str(e)}")
+
+    response_data = {
+        "session_id": session_id,
+        "filename": video.filename,
+        "frame": frame_data_url,
+        "frame_width": frame_width,
+        "frame_height": frame_height,
+        "detections": detections,
+    }
+
+    logger.info(f"Person detection complete: {len(detections)} people found")
+    return response_data
+
+
 @app.post("/analyze")
 async def analyze_video(
     video: UploadFile = File(...),
     pre_trim: float = Form(3.0),
     post_trim: float = Form(3.0),
+    person_index: Optional[int] = Form(None),
 ):
     """
     Upload a video for jump analysis.
 
+    If person_index is provided, focus analysis on that specific person.
     Returns analysis results including clip URLs for each detected jump.
     """
     # Validate file type
@@ -135,8 +184,17 @@ async def analyze_video(
 
     # Run jump detection
     try:
-        result = detect_jumps(
-            video_path=video_path,
+        if person_index is not None:
+            result = detect_jumps_with_person(
+                video_path=video_path,
+                person_index=person_index,
+                fps=30.0,
+                pre_trim=pre_trim,
+                post_trim=post_trim,
+            )
+        else:
+            result = detect_jumps(
+                video_path=video_path,
             fps=30.0,
             pre_trim=pre_trim,
             post_trim=post_trim,
@@ -173,10 +231,12 @@ async def analyze_video(
         clip_path = os.path.join(session_clips_dir, clip_filename)
 
         # Compute the trim window: [takeoff - pre, landing + post]
+        # Clip centered around the APEX of the jump (not takeoff/landing)
+        # This ensures the jump action is in the middle of the clip
         pre_frames = int(pre_trim * result.fps)
         post_frames = int(post_trim * result.fps)
-        start_frame = max(0, jump.takeoff_frame - pre_frames)
-        end_frame = min(result.total_frames, jump.landing_frame + post_frames)
+        start_frame = max(0, jump.apex_frame - pre_frames)
+        end_frame = min(result.total_frames, jump.apex_frame + post_frames)
 
         success = trim_clip(
             video_path=video_path,
@@ -275,10 +335,11 @@ async def get_frame_data(session_id: str, jump_index: int):
         raise HTTPException(status_code=404, detail=f"Jump #{jump_index} not found")
 
     # Determine clip frame range (using same logic as clip trimming)
-    pre_frames = int(3.0 * result.fps)  # default pre_trim=3.0
-    post_frames = int(3.0 * result.fps)  # default post_trim=3.0
-    start_frame = max(0, jump.takeoff_frame - pre_frames)
-    end_frame = min(result.total_frames, jump.landing_frame + post_frames)
+    # Use same apex-centered logic as /analyze
+    pre_frames = int(3.0 * result.fps)
+    post_frames = int(3.0 * result.fps)
+    start_frame = max(0, jump.apex_frame - pre_frames)
+    end_frame = min(result.total_frames, jump.apex_frame + post_frames)
 
     # Extract landmarks for just the clip region
     clip_landmarks: List[Any] = []
@@ -324,6 +385,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=9099,
-        reload=True,
+        reload=False,
         log_level="info",
     )

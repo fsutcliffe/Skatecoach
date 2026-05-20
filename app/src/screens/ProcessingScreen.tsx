@@ -20,7 +20,7 @@ type ProcessingNavProp = NativeStackNavigationProp<RootStackParamList, 'Processi
 export default function ProcessingScreen() {
   const navigation = useNavigation<ProcessingNavProp>();
   const route = useRoute<ProcessingRouteProp>();
-  const { videoUri } = route.params;
+  const { videoUri, personIndex } = route.params;
 
   const [status, setStatus] = useState('Uploading video...');
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +33,12 @@ export default function ProcessingScreen() {
     (async () => {
       try {
         setStatus('Analyzing jump mechanics...');
-        const result = await analyzeVideo(videoUri);
+        const result = await analyzeVideo(
+          videoUri,
+          3.0,
+          3.0,
+          personIndex
+        );
 
         if (result.total_jumps === 0) {
           Alert.alert(
@@ -51,7 +56,7 @@ export default function ProcessingScreen() {
         setError(err.message || 'Analysis failed');
       }
     })();
-  }, [videoUri, navigation]);
+  }, [videoUri, personIndex, navigation]);
 
   return (
     <SafeAreaView style={styles.container}>

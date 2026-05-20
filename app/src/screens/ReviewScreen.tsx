@@ -116,7 +116,7 @@ export default function ReviewScreen() {
   }, []);
 
   // Compute current frame's landmarks for skeleton overlay
-  const currentLandmarks = frameData && currentFrame < frameData.landmarks.length
+  const currentLandmarks = frameData && frameData.landmarks && currentFrame < frameData.landmarks.length
     ? frameData.landmarks[currentFrame]
     : null;
 
@@ -184,9 +184,9 @@ export default function ReviewScreen() {
       </View>
 
       {/* Video Player with Skeleton Overlay */}
-      <View style={styles.videoContainer} onLayout={onVideoLayout}>
+      <View style={styles.videoContainer}>
         {clipUrl ? (
-          <View style={styles.videoWrapper}>
+          <View style={styles.videoWrapper} onLayout={onVideoLayout}>
             <Video
               ref={videoRef}
               source={{ uri: clipUrl }}
@@ -403,7 +403,8 @@ const styles = StyleSheet.create({
   },
   videoContainer: {
     width: SCREEN_WIDTH,
-    aspectRatio: 16 / 9,
+    height: SCREEN_WIDTH * 16 / 9,
+    maxHeight: 500,
     backgroundColor: '#000000',
   },
   videoWrapper: {

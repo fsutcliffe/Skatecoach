@@ -1,4 +1,4 @@
-import { AnalysisResult } from '../types';
+import { AnalysisResult, DetectPeopleResponse } from '../types';
 
 // When running on a local dev machine, use your computer's LAN IP so your iPhone can reach it.
 // For production, replace with your server URL.
@@ -16,7 +16,8 @@ const API_BASE = __DEV__
 export async function analyzeVideo(
   videoUri: string,
   preTrim: number = 3.0,
-  postTrim: number = 3.0
+  postTrim: number = 3.0,
+  personIndex?: number
 ): Promise<AnalysisResult> {
   const formData = new FormData();
 
@@ -33,6 +34,10 @@ export async function analyzeVideo(
   formData.append('pre_trim', String(preTrim));
   formData.append('post_trim', String(postTrim));
 
+  if (personIndex !== undefined) {
+    formData.append('person_index', String(personIndex));
+  }
+
   const response = await fetch(`${API_BASE}/analyze`, {
     method: 'POST',
     body: formData,
@@ -44,6 +49,38 @@ export async function analyzeVideo(
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Analysis failed (${response.status}): ${errorText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Detect people in the middle frame of a video.
+ * Returns bounding boxes, confidence scores, and skeleton landmarks.
+ */
+export async function detectPeople(videoUri: string): Promise<DetectPeopleResponse> {
+  const formData = new FormData();
+
+  const filename = videoUri.split('/').pop() || 'video.mp4';
+  const fileType = filename.endsWith('.mov') ? 'video/quicktime' : 'video/mp4';
+
+  formData.append('video', {
+    uri: videoUri,
+    name: filename,
+    type: fileType,
+  } as any);
+
+  const response = await fetch(`${API_BASE}/detect-people`, {
+    method: 'POST',
+    body: formData,
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Detection failed (${response.status}): ${errorText}`);
   }
 
   return response.json();
