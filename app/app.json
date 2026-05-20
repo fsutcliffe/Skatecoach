@@ -37,7 +37,8 @@
         {
           "photosPermission": "Allow Sideline to access your photos."
         }
-      ]
+      ],
+      "expo-asset"
     ]
   }
 }

@@ -8,11 +8,14 @@ trims clips around each detected jump, and serves results.
 import logging
 import os
 import uuid
-from typing import Dict, Optional
+from typing import Dict, Optional, List
+
+from fastapi.staticfiles import StaticFiles
 
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.responses import FileResponse, JSONResponse
 
 from analyzer import JumpAnalysisResult, JumpEvent, detect_jumps, trim_clip
@@ -22,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ──
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 CLIPS_DIR = os.path.join(BASE_DIR, "clips")
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".webm", ".m4v"}
@@ -68,6 +72,20 @@ def jump_to_dict(jump: JumpEvent, session_id: str, fps: float = 30.0) -> dict:
         "clip_url": f"/clips/{session_id}/{clip_filename}",
         "clip_filename": clip_filename,
     }
+
+
+# ── Serve Static Pages ──
+os.makedirs(STATIC_DIR, exist_ok=True)
+
+
+@app.get("/qr", response_class=HTMLResponse)
+async def serve_qr_page():
+    """Serve the QR code page for Expo Go connection."""
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if os.path.exists(index_path):
+        with open(index_path, "r") as f:
+            return f.read()
+    return HTMLResponse("<h1>QR page not found</h1>", status_code=404)
 
 
 # ── API Endpoints ──
@@ -243,7 +261,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8001,
         reload=True,
         log_level="info",
     )

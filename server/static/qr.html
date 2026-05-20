@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sideline — Open in Expo Go</title>
+  <style>
+    body { 
+      background: #0f0f23; 
+      color: #fff; 
+      font-family: -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      text-align: center;
+    }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    p { color: #8888aa; margin-bottom: 24px; }
+    .qr { 
+      background: white; 
+      padding: 16px; 
+      border-radius: 16px;
+      margin-bottom: 24px;
+      max-width: 280px;
+    }
+    .qr img { width: 100%; display: block; }
+    .btn {
+      display: inline-block;
+      background: #4a4aff;
+      color: white;
+      text-decoration: none;
+      padding: 16px 32px;
+      border-radius: 14px;
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .hint {
+      color: #666688;
+      font-size: 14px;
+    }
+    .fallback {
+      background: #1a1a3e;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      color: #aaaacc;
+      word-break: break-all;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🏋️ Sideline</h1>
+  <p>Jump Analysis App — Open in Expo Go</p>
+  
+  <div class="qr">
+    <img id="qr-img" alt="QR Code">
+  </div>
+
+  <a class="btn" href="exp://hmkdgxs-anonymous-8081.exp.direct:80">Open in Expo Go →</a>
+  
+  <p class="hint">Tap the button above to open directly in Expo Go.</p>
+  <p class="hint">Or scan the QR code with another phone.</p>
+
+  <div class="fallback">
+    exp://hmkdgxs-anonymous-8081.exp.direct:80
+  </div>
+
+  <script>
+    document.getElementById('qr-img').src = 'data:image/png;base64,BASE64_PLACEHOLDER';
+  </script>
+</body>
+</html>

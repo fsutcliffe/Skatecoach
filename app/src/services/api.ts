@@ -2,9 +2,11 @@ import { AnalysisResult } from '../types';
 
 // When running on a local dev machine, use your computer's LAN IP so your iPhone can reach it.
 // For production, replace with your server URL.
+// Replace YOUR_COMPUTER_IP with this server's IP for iPhone testing
+const SERVER_IP = '177.7.47.59';
 const API_BASE = __DEV__
-  ? 'http://YOUR_COMPUTER_IP:8000'
-  : 'http://localhost:8000';
+  ? `http://${SERVER_IP}:8000`
+  : 'http://localhost:8001';
 
 /**
  * Upload a video for jump analysis.
