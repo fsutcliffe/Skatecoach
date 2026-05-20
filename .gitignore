@@ -1,0 +1,19 @@
+# Dependencies
+app/node_modules/
+server/venv/
+
+# Build
+app/.expo/
+dist/
+
+# Generated
+server/uploads/
+server/clips/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

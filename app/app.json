@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Sideline",
+    "slug": "sideline",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0f0f23"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.sideline.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Sideline needs camera access to record jump videos.",
+        "NSPhotoLibraryUsageDescription": "Sideline needs photo library access to upload jump videos."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0f0f23"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Sideline to access your camera."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Sideline to access your photos."
+        }
+      ]
+    ]
+  }
+}
